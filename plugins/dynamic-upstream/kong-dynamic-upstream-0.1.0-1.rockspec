@@ -3,7 +3,9 @@ version = "0.1.0-1"
 source = {
   url = "git+https://github.com/davidgrldo/kong-dynamic-upstream.git",
   tag = "v0.1.0",
-  dir = "plugins/dynamic-upstream",
+  -- luarocks clones the repo into a directory named after it; source.dir
+  -- is relative to that clone's parent, so the repo name stays in the path.
+  dir = "kong-dynamic-upstream/plugins/dynamic-upstream",
 }
 description = {
   summary = "Gravitee-style dynamic upstream routing for Kong Gateway OSS",
