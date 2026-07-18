@@ -1,0 +1,47 @@
+_format_version: "3.0"
+
+# Example DB-less config exercising both target modes.
+# Run against Kong OSS 3.9.x with KONG_PLUGINS=bundled,dynamic-upstream
+
+upstreams:
+  - name: bankxyz-cluster
+    targets:
+      - target: bankxyz-a.internal:8443
+        weight: 100
+      - target: bankxyz-b.internal:8443
+        weight: 100
+
+services:
+  - name: partner-api
+    # Default upstream when on_no_match=passthrough and no rule matches.
+    url: http://default-backend.internal:8080
+    routes:
+      - name: partner-api-route
+        paths: [ "/api" ]
+    plugins:
+      - name: dynamic-upstream
+        config:
+          on_no_match: passthrough
+          allowed_hosts:
+            - "*.internal"
+            - "*.svc.cluster.local"
+          rules:
+            # 1) Named partner -> Kong Upstream entity (LB + health checks)
+            - condition:
+                header: { name: "X-Tenant", value: "bankxyz" }
+              target:
+                upstream: bankxyz-cluster
+
+            # 2) Sandbox traffic -> literal URL, Host header rewritten
+            - condition:
+                header: { name: "X-Env", regex: "^sandbox" }
+              target:
+                url: "https://sandbox-api.internal:8443$(uri)"
+                preserve_host: false
+
+            # 3) Region routing -> templated host (requires allowed_hosts)
+            - condition:
+                header: { name: "X-Region" }
+              target:
+                url: "https://$(header.X-Region).svc.cluster.local$(uri)"
+                preserve_host: false

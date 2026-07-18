@@ -1,0 +1,84 @@
+_format_version: "3.0"
+
+# e2e config. Each rule is keyed to a test header; the echo backends report
+# hostname, Host header, path, query and TLS SNI, which run.sh asserts on.
+
+upstreams:
+  - name: bankxyz-cluster
+    targets:
+      - target: echo-a.internal:8080
+
+services:
+  - name: partner-api
+    url: http://default-backend.internal:8080
+    routes:
+      - name: partner-route
+        paths: ["/api"]
+        strip_path: false
+    plugins:
+      - name: dynamic-upstream
+        config:
+          on_no_match: passthrough
+          allowed_hosts: ["*.internal"]
+          rules:
+            # upstream entity mode
+            - condition:
+                header: { name: X-Tenant, value: bankxyz }
+              target:
+                upstream: bankxyz-cluster
+            # literal url, Host rewritten to target
+            - condition:
+                header: { name: X-Env, regex: "^sandbox" }
+              target:
+                url: "http://echo-b.internal:8080$(uri)"
+                preserve_host: false
+            # template query replaces the client query
+            - condition:
+                header: { name: X-Query-Replace }
+              target:
+                url: "http://echo-b.internal:8080/fixed?src=gateway"
+                preserve_host: false
+            # unresolved variable -> 503 (fail closed)
+            - condition:
+                header: { name: X-Fail-Var }
+              target:
+                url: "http://echo-b.internal:8080/p/$(query.q)"
+                preserve_host: false
+            # https target, SNI must follow the target host
+            - condition:
+                header: { name: X-TLS }
+              target:
+                url: "https://echo-b.internal:8443$(uri)"
+                preserve_host: false
+            # https target with preserved client Host -> SNI follows client
+            - condition:
+                header: { name: X-TLS-Preserve }
+              target:
+                url: "https://echo-b.internal:8443$(uri)"
+            # preserve_host default (true): client Host survives
+            - condition:
+                header: { name: X-Keep-Host }
+              target:
+                url: "http://echo-b.internal:8080$(uri)"
+            # templated host from a client header (SSRF allowlist applies)
+            - condition:
+                header: { name: X-Region }
+              target:
+                url: "http://$(header.X-Region):8080$(uri)"
+                preserve_host: false
+
+  - name: strict-api
+    url: http://default-backend.internal:8080
+    routes:
+      - name: strict-route
+        paths: ["/strict"]
+        strip_path: false
+    plugins:
+      - name: dynamic-upstream
+        config:
+          on_no_match: reject_503
+          rules:
+            - condition:
+                header: { name: X-Never, value: nope }
+              target:
+                upstream: bankxyz-cluster
