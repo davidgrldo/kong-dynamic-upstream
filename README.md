@@ -2,6 +2,7 @@
 
 [![test](https://github.com/davidgrldo/kong-dynamic-upstream/actions/workflows/test.yml/badge.svg)](https://github.com/davidgrldo/kong-dynamic-upstream/actions/workflows/test.yml)
 [![Kong](https://img.shields.io/badge/Kong%20OSS-3.x-003459)](https://konghq.com/)
+[![LuaRocks](https://img.shields.io/luarocks/v/davidgrldo/kong-dynamic-upstream)](https://luarocks.org/modules/davidgrldo/kong-dynamic-upstream)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 **Route each request to a different upstream, decided at the gateway.**
@@ -72,8 +73,10 @@ docker compose -f e2e/docker-compose.yml down -v               # tear down
 ## Installation
 
 ```sh
-cd plugins/dynamic-upstream
-luarocks make kong-dynamic-upstream-0.1.0-1.rockspec
+luarocks install kong-dynamic-upstream
+# or from a checkout:
+#   cd plugins/dynamic-upstream && luarocks make kong-dynamic-upstream-0.1.0-1.rockspec
+
 # then enable it:
 export KONG_PLUGINS=bundled,dynamic-upstream
 ```
