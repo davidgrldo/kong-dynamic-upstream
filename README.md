@@ -1,28 +1,82 @@
 # kong-dynamic-upstream
 
-> **Gravitee-style dynamic endpoint routing for Kong Gateway OSS 3.x** —
-> header, consumer, and template-based upstream override with SSRF-safe
-> allowlisting.
+[![test](https://github.com/davidgrldo/kong-dynamic-upstream/actions/workflows/test.yml/badge.svg)](https://github.com/davidgrldo/kong-dynamic-upstream/actions/workflows/test.yml)
+[![Kong](https://img.shields.io/badge/Kong%20OSS-3.x-003459)](https://konghq.com/)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-Route each request to a different upstream, decided at the gateway. Rules are
-evaluated in order (**first match wins**); a rule can point at a **Kong
-Upstream entity** (load balancing + health checks) or at a **templated URL**
-built from request variables — the same pattern as Gravitee's
+**Route each request to a different upstream, decided at the gateway.**
+Gravitee-style dynamic endpoint routing for Kong Gateway OSS 3.x — header,
+consumer, and template-based upstream override with SSRF-safe allowlisting.
+
+```yaml
+rules:
+  - condition:
+      header: { name: "X-Tenant", value: "bankxyz" }
+    target:
+      upstream: bankxyz-cluster                          # Kong Upstream entity
+  - condition:
+      header: { name: "X-Region" }                       # presence check
+    target:
+      url: "https://$(header.X-Region).svc.cluster.local$(uri)"
+      preserve_host: false
+```
+
+Rules are evaluated in order (**first match wins**); a rule can point at a
+**Kong Upstream entity** (load balancing + health checks) or at a **templated
+URL** built from request variables — the same pattern as Gravitee's
 `gravitee.attribute.request.endpoint` override, brought to Kong OSS.
-
-Status: **pre-release**. Core handler, schema, 28 unit tests and a 19-case
-e2e harness (Kong 3.9 DB-less + echo upstreams, covering routing, allowlist
-403, fail-closed 503, preserve_host, query handling and TLS/SNI) are in
-place; the items under Roadmap are not.
 
 ## Why
 
-- Kong OSS has no per-request upstream override: `route-by-header` is
+- **Kong OSS has no per-request upstream override.** `route-by-header` is
   Enterprise-only, and request-transformer cannot change the target.
-- Gravitee's dynamic endpoint policy is the closest prior art, but it has no
-  Kong OSS equivalent — and no host allowlisting either.
-- This plugin supports **both** target modes (Enterprise `route-by-header`
+- **Gravitee's dynamic endpoint policy is the closest prior art**, but it has
+  no Kong OSS equivalent — and no host allowlisting either.
+- **This plugin supports both target modes** (Enterprise `route-by-header`
   only does upstreams; Gravitee only does URLs).
+
+```mermaid
+flowchart LR
+    A[request] --> B{rules<br/>first match wins}
+    B -- no match --> C[passthrough<br/>or 503]
+    B -- upstream --> D[Kong Upstream entity<br/>LB + health checks]
+    B -- url --> E[substitute variables<br/>fail closed: 503]
+    E --> F{host from<br/>client input?}
+    F -- "yes, not on allowlist" --> G[403]
+    F -- "on allowlist / literal" --> H[set target,<br/>Host + SNI]
+```
+
+Every behavior claimed here is asserted by tests: **28 unit tests** (plain
+Lua 5.1) and a **19-case e2e suite** against real Kong 3.9 (routing,
+allowlist 403, fail-closed 503, preserve_host, query handling, TLS/SNI).
+
+## Try it in two minutes
+
+Requires docker and jq:
+
+```sh
+git clone https://github.com/davidgrldo/kong-dynamic-upstream
+cd kong-dynamic-upstream
+KEEP=1 e2e/run.sh            # runs the e2e suite, leaves the stack up
+
+# then play with it:
+curl -s localhost:18000/api/hello | jq .os.hostname            # default backend
+curl -s -H 'X-Tenant: bankxyz' localhost:18000/api/hello \
+  | jq .os.hostname                                            # routed cluster
+curl -s -o /dev/null -w '%{http_code}\n' \
+  -H 'X-Region: evil.com' localhost:18000/api/hello            # 403, SSRF guard
+
+docker compose -f e2e/docker-compose.yml down -v               # tear down
+```
+
+## Installation
+
+```sh
+cd plugins/dynamic-upstream
+luarocks make kong-dynamic-upstream-0.1.0-1.rockspec
+# then enable it:
+export KONG_PLUGINS=bundled,dynamic-upstream
+```
 
 ## Configuration
 
@@ -104,8 +158,8 @@ service. Two layers prevent that:
    variables after the first `/` are path-only and don't trigger this.)
 2. **Request time** — after substitution, the resolved host must match the
    allowlist or the request gets `403`. Resolved URLs are also re-parsed and
-   validated (scheme, no userinfo, hostname charset), so header values cannot
-   smuggle ports, paths, or a second host.
+   validated (scheme, no userinfo, no fragments, hostname charset), so header
+   values cannot smuggle ports, paths, or a second host.
 
 Literal hosts written in config are operator-controlled and trusted as-is.
 
@@ -129,15 +183,11 @@ LUA_PATH="./?.lua;./plugins/dynamic-upstream/?.lua;;" lua spec/run.lua
 
 # e2e (docker + jq): Kong 3.9 DB-less + echo upstreams
 e2e/run.sh              # KEEP=1 e2e/run.sh leaves the stack running
-
-# install into a Kong image
-cd plugins/dynamic-upstream
-luarocks make kong-dynamic-upstream-0.1.0-1.rockspec
-# then: KONG_PLUGINS=bundled,dynamic-upstream
 ```
 
 `config/kong.yml` is a runnable DB-less example exercising both target modes.
+Both test suites run in CI on every push.
 
 ## License
 
-Apache-2.0.
+[Apache-2.0](LICENSE).
