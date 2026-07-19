@@ -132,6 +132,13 @@ plugins:
 | `allowed_hosts` | array | `[]` | Host allowlist: exact names or `*.suffix`. Required (together with a literal `:port` in the template) when a url host is templated. |
 | `on_no_match` | string | `passthrough` | `passthrough` to the route's service, or `reject_503`. |
 
+On DB-backed deployments the schema renders natively in **Kong Manager** —
+this is the create form on a real Kong 3.9.3 hybrid cluster:
+
+<img src=".github/kong-manager.png" alt="Kong Manager rendering the dynamic-upstream plugin form" width="720">
+
+
+
 ### Responses at a glance
 
 | Status | Body | When |
