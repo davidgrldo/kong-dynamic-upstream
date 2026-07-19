@@ -43,5 +43,5 @@ services:
             - condition:
                 header: { name: "X-Region" }
               target:
-                url: "https://$(header.X-Region).svc.cluster.local$(uri)"
+                url: "https://$(header.X-Region).svc.cluster.local:443$(uri)"
                 preserve_host: false

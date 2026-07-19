@@ -107,6 +107,8 @@ assert_json "templated host on the allowlist routes" \
   '.os.hostname' echo-a -- -H "X-Region: echo-a.internal" "$PROXY/api/ping"
 assert_status "host off the allowlist gets 403" 403 -- \
   -H "X-Region: evil.com" "$PROXY/api/ping"
+assert_status "injected port on an allowlisted host is rejected" 503 -- \
+  -H "X-Region: echo-a.internal:9090" "$PROXY/api/ping"
 
 # --- preserve_host default -----------------------------------------------------
 assert_json "preserve_host default keeps the client Host" \

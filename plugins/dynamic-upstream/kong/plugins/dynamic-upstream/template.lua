@@ -30,22 +30,29 @@ function M.is_client_controlled(var)
   return CLIENT_CONTROLLED_NS[ns] == true
 end
 
--- True when the authority of the URL template contains a variable. Such
--- templates require allowed_hosts. The authority ends at the first "/" or
--- "?" — or at a literal "$(uri)" token, since $(uri) always expands with a
--- leading "/" and therefore starts the path.
-function M.host_is_dynamic(url_template)
+-- The authority (host[:port]) portion of a URL template: everything after
+-- the scheme up to the first "/" or "?" — or up to a literal "$(uri)"
+-- token, since $(uri) always expands with a leading "/" and therefore
+-- starts the path. nil when the template has no scheme.
+function M.authority_of(url_template)
   local rest = url_template:match("^[a-zA-Z][%w+.-]*://(.*)$")
   if not rest then
-    return false
+    return nil
   end
   local slash = rest:find("/", 1, true)
   local qmark = rest:find("?", 1, true)
   local uri_tok = rest:find("$(uri)", 1, true)
   local stop = math.min(slash or math.huge, qmark or math.huge,
                         uri_tok or math.huge)
-  local authority = (stop == math.huge) and rest or rest:sub(1, stop - 1)
-  return authority:find("%$%(") ~= nil
+  return (stop == math.huge) and rest or rest:sub(1, stop - 1)
+end
+
+-- True when the authority of the URL template contains a variable. Such
+-- templates require allowed_hosts AND a literal :port (so a header value
+-- cannot pick the port on an allowlisted host).
+function M.host_is_dynamic(url_template)
+  local authority = M.authority_of(url_template)
+  return authority ~= nil and authority:find("%$%(") ~= nil
 end
 
 local function resolve(var)
@@ -115,7 +122,7 @@ function M.parse_url(url)
   if not host then
     host, port = authority, nil
   end
-  if host == "" or host:find("[^%w%.%-]") then
+  if host == "" or host:find("[^%w%._%-]") then
     return nil, "invalid target host"
   end
   port = tonumber(port) or (scheme == "https" and 443 or 80)

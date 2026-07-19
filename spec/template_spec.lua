@@ -93,6 +93,12 @@ t.test("defaults ports by scheme and path to nil", function()
   t.equal(template.parse_url("https://a.internal").path, nil)
 end)
 
+t.test("accepts underscores in hostnames", function()
+  local template = fresh_template({})
+  t.equal(template.parse_url("http://snake_case.internal/x").host,
+          "snake_case.internal")
+end)
+
 t.test("splits the query string off the path", function()
   local template = fresh_template({})
   local u = template.parse_url("https://a.internal:8443/v1/orders?env=sbx&p=1")

@@ -50,17 +50,34 @@ local function validate(config)
       return nil, where .. "target needs exactly one of upstream or url"
     end
 
+    if has_upstream and t.preserve_host ~= nil and t.preserve_host ~= ngx.null then
+      return nil, where .. "preserve_host only applies to url targets"
+    end
+
     if has_url then
       local ok, err = validate_url_template(t.url)
       if not ok then
         return nil, where .. err
       end
+      -- SNI follows whichever Host preserve_host selects, so for https
+      -- targets the choice must be conscious, not a default.
+      if t.url:match("^https://")
+         and (t.preserve_host == nil or t.preserve_host == ngx.null) then
+        return nil, where .. "https target url requires an explicit "
+          .. "preserve_host (upstream SNI follows the chosen Host)"
+      end
       -- SSRF guard, enforced at config time: a client-influenced host is
-      -- only accepted together with a non-empty allowlist.
-      if template.host_is_dynamic(t.url)
-         and #(config.allowed_hosts or {}) == 0 then
-        return nil, where .. "target url has a variable in the host; "
-          .. "allowed_hosts must be set"
+      -- only accepted together with a non-empty allowlist, and the port
+      -- must be pinned in the template so a header value cannot pick it.
+      if template.host_is_dynamic(t.url) then
+        if #(config.allowed_hosts or {}) == 0 then
+          return nil, where .. "target url has a variable in the host; "
+            .. "allowed_hosts must be set"
+        end
+        if not template.authority_of(t.url):find(":%d+$") then
+          return nil, where .. "target url has a variable in the host; "
+            .. "a literal :port is required"
+        end
       end
     end
   end
@@ -68,7 +85,7 @@ local function validate(config)
 end
 
 local function validate_allowed_host(v)
-  if v:match("^%*%.[%w][%w%.%-]*$") or v:match("^[%w][%w%.%-]*$") then
+  if v:match("^%*%.[%w_][%w%._%-]*$") or v:match("^[%w_][%w%._%-]*$") then
     return true
   end
   return nil, "allowed_hosts entries must be a hostname or *.suffix pattern"
@@ -106,7 +123,10 @@ return {
                       fields = {
                         { upstream = { type = "string" } },
                         { url = { type = "string" } },
-                        { preserve_host = { type = "boolean", default = true } },
+                        -- no default: the cross-field validator must see
+                        -- whether the operator set it (https requires an
+                        -- explicit choice). The handler treats nil as true.
+                        { preserve_host = { type = "boolean" } },
                       },
                   } },
                 },

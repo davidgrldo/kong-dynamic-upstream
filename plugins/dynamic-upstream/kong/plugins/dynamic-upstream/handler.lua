@@ -5,7 +5,7 @@ local template = require "kong.plugins.dynamic-upstream.template"
 -- AFTER authentication plugins (~1000+, ensuring $(consumer.*) is
 -- populated) and AFTER request-transformer (801, so header rewrites have
 -- settled before rules are evaluated).
-local Handler = { VERSION = "0.1.0", PRIORITY = 750 }
+local Handler = { VERSION = "0.2.0", PRIORITY = 750 }
 
 local function fail(status, message)
   return kong.response.exit(status, { message = message })

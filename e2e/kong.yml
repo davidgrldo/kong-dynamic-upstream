@@ -55,6 +55,7 @@ services:
                 header: { name: X-TLS-Preserve }
               target:
                 url: "https://echo-b.internal:8443$(uri)"
+                preserve_host: true
             # preserve_host default (true): client Host survives
             - condition:
                 header: { name: X-Keep-Host }
