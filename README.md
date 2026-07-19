@@ -6,8 +6,10 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 **Route each request to a different upstream, decided at the gateway.**
-Gravitee-style dynamic endpoint routing for Kong Gateway OSS 3.x — header,
-consumer, and template-based upstream override with SSRF-safe allowlisting.
+Gravitee-style dynamic endpoint routing for Kong Gateway OSS 3.x —
+first-match-wins header rules targeting Kong Upstreams or URL templates
+(built from request and consumer variables), with SSRF-safe allowlisting.
+No database, no custom entities: DB-less and Ingress Controller friendly.
 
 ```yaml
 rules:
@@ -33,8 +35,13 @@ URL** built from request variables — the same pattern as Gravitee's
   Enterprise-only, and request-transformer cannot change the target.
 - **Gravitee's dynamic endpoint policy is the closest prior art**, but it has
   no Kong OSS equivalent — and no host allowlisting either.
-- **This plugin supports both target modes** (Enterprise `route-by-header`
-  only does upstreams; Gravitee only does URLs).
+
+|  | `route-by-header` (Kong Enterprise) | Gravitee dynamic endpoint | **dynamic-upstream** |
+|---|---|---|---|
+| Available on | Kong Enterprise | Gravitee gateway | Kong OSS 3.x, Apache-2.0 |
+| Target: Kong Upstream entity (LB, health checks) | ✅ | — | ✅ |
+| Target: templated URL | ❌ | ✅ | ✅ |
+| Host allowlist for templated targets | n/a | ❌ | ✅ two-layer, plus port pinning |
 
 ```mermaid
 flowchart LR
@@ -54,7 +61,7 @@ handling, TLS/SNI).
 
 ## Try it in two minutes
 
-Requires docker and jq:
+Requires Docker and jq:
 
 ```sh
 git clone https://github.com/davidgrldo/kong-dynamic-upstream
@@ -62,11 +69,15 @@ cd kong-dynamic-upstream
 KEEP=1 e2e/run.sh            # runs the e2e suite, leaves the stack up
 
 # then play with it:
-curl -s localhost:18000/api/hello | jq .os.hostname            # default backend
-curl -s -H 'X-Tenant: bankxyz' localhost:18000/api/hello \
-  | jq .os.hostname                                            # routed cluster
+curl -s localhost:18000/api/hello | jq .os.hostname
+#   "echo-default"                    <- no rule matched: route's own service
+curl -s -H 'X-Tenant: bankxyz' localhost:18000/api/hello | jq .os.hostname
+#   "echo-a"                          <- routed via the Kong Upstream entity
+curl -s -H 'X-Region: echo-b.internal' localhost:18000/api/hello | jq .os.hostname
+#   "echo-b"                          <- host built from the client header
 curl -s -o /dev/null -w '%{http_code}\n' \
-  -H 'X-Region: evil.com' localhost:18000/api/hello            # 403, SSRF guard
+  -H 'X-Region: evil.com' localhost:18000/api/hello
+#   403                               <- SSRF guard: host not on the allowlist
 
 docker compose -f e2e/docker-compose.yml down -v               # tear down
 ```
@@ -89,7 +100,7 @@ plugins:
   - name: dynamic-upstream
     config:
       on_no_match: passthrough        # or reject_503
-      allowed_hosts:                  # required if any url host is templated
+      allowed_hosts:                  # required (with a literal :port) if any url host is templated
         - "*.internal"
         - "*.svc.cluster.local"
       rules:
@@ -118,8 +129,16 @@ plugins:
 | `rules[].target.upstream` | string | *(none)* | Kong Upstream name. Exactly one of `upstream`/`url`. |
 | `rules[].target.url` | string | *(none)* | Literal or templated `http(s)` URL. |
 | `rules[].target.preserve_host` | boolean | `true` | `false` rewrites the `Host` header to the target host. `url` targets only; **must be set explicitly for `https` urls** (SNI follows the chosen Host). |
-| `allowed_hosts` | array | `[]` | Host allowlist: exact names or `*.suffix`. |
+| `allowed_hosts` | array | `[]` | Host allowlist: exact names or `*.suffix`. Required (together with a literal `:port` in the template) when a url host is templated. |
 | `on_no_match` | string | `passthrough` | `passthrough` to the route's service, or `reject_503`. |
+
+### Responses at a glance
+
+| Status | Body | When |
+|---|---|---|
+| `403` | `Upstream host not allowed` | Resolved templated host is not on `allowed_hosts`. |
+| `503` | `Upstream resolution failed` | Unresolved/empty template variable, the resolved URL fails re-validation (e.g. an injected `:port`), or `set_upstream` fails. |
+| `503` | `No upstream rule matched` | No rule matched and `on_no_match: reject_503`. |
 
 ### Template variables
 
@@ -183,6 +202,14 @@ Literal hosts written in config are operator-controlled and trusted as-is.
 populated) and after `request-transformer` (801), so header rewrites settle
 before rules are evaluated.
 
+## Compatibility
+
+Verified against Kong OSS **3.9** — that's what the e2e suite runs in CI.
+It uses only stable PDK calls and plain Lua (no custom entities, no
+database migrations), so other 3.x releases are expected to work, but
+only 3.9 is tested. Pre-1.0: the config schema may tighten between minor
+versions, as it did in 0.2.0 — see the release notes.
+
 ## Roadmap
 
 - [ ] Condition types beyond header: `query`, `consumer` (username/group)
@@ -200,7 +227,7 @@ e2e/run.sh              # KEEP=1 e2e/run.sh leaves the stack running
 ```
 
 `config/kong.yml` is a runnable DB-less example exercising both target modes.
-Both test suites run in CI on every push.
+CI runs luacheck, the unit suite and the e2e suite on every push.
 
 ## License
 
